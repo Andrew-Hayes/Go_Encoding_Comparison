@@ -35,105 +35,254 @@ type DebianVulnData struct {
 	Packages []DebianPackageData `json:"packages" yaml:"packages" xml:"packages"`
 }
 
-func main() {
-	fmt.Println("Warm up")
+type DebianReleaseDataNoTag struct {
+	ReleaseName  string
+	Status       string
+	FixedVersion string
+	Urgency      string
+}
 
-	// warm up round to get everything started
-	unmarshalThenMarshalYAML()
-	unmarshalThenMarshalJSON()
-	unmarshalThenMarshalXML()
+type DebianPackageCVEDataNoTag struct {
+	CVEID       string
+	Description string
+	Scope       string
+	Releases    []DebianReleaseDataNoTag
+}
 
-	fmt.Println("Start")
-	amount := 5
+type DebianPackageDataNoTag struct {
+	Package string
+	CVES    []DebianPackageCVEDataNoTag
+}
 
-	yamlTimes := []string{}
-	jsonTimes := []string{}
-	xmlTimes := []string{}
+type DebianVulnDataNoTag struct {
+	Packages []DebianPackageDataNoTag
+}
 
-	for i := 0; i < amount; i++ {
-		yamlTime := unmarshalThenMarshalYAML()
-		yamlTimes = append(yamlTimes, fmt.Sprintf("%d", yamlTime))
-		jsonTime := unmarshalThenMarshalJSON()
-		jsonTimes = append(jsonTimes, fmt.Sprintf("%d", jsonTime))
-		xmlTime := unmarshalThenMarshalXML()
-		xmlTimes = append(xmlTimes, fmt.Sprintf("%d", xmlTime))
+type TimeData struct {
+	Unmarshal int64
+	Marshal   int64
+}
+
+type Times struct {
+	Encoding string
+	Times    []TimeData
+}
+
+func (t Times) String() string {
+	unmarshal := make([]string, 0, len(t.Times))
+	marshal := make([]string, 0, len(t.Times))
+	totals := make([]string, 0, len(t.Times))
+	for _, timeData := range t.Times {
+		unmarshal = append(unmarshal, fmt.Sprintf("%d", timeData.Unmarshal))
+		marshal = append(marshal, fmt.Sprintf("%d", timeData.Marshal))
+		totals = append(totals, fmt.Sprintf("%d", (timeData.Marshal+timeData.Unmarshal)))
 	}
-	fmt.Println("YAML: ", strings.Join(yamlTimes, ", "))
-	fmt.Println("JSON: ", strings.Join(jsonTimes, ", "))
-	fmt.Println("XML: ", strings.Join(xmlTimes, ", "))
+	return fmt.Sprintf("[%s] Unmarshal: %s.\n[%s] Marshal: %s.\n[%s] Combined: %s.\n", t.Encoding, strings.Join(unmarshal, ", "), t.Encoding, strings.Join(marshal, ", "), t.Encoding, strings.Join(totals, ", "))
+}
+
+func main() {
+	fmt.Println("Start")
+
+	yamlDataBytes := readInBytes("./debian_vulns.yaml")
+	jsonDataBytes := readInBytes("./debian_vulns.json")
+	xmlDataBytes := readInBytes("./debian_vulns.xml")
+
+	if true {
+		fmt.Println("Warm up")
+		// warm up round to get everything started
+		unmarshalThenMarshalYAML(yamlDataBytes)
+		unmarshalThenMarshalJSON(jsonDataBytes)
+		unmarshalThenMarshalXML(xmlDataBytes)
+
+		fmt.Println("Test begin")
+		amount := 50
+
+		yamlTimes := Times{Encoding: "YAML"}
+		yamlNoTagTimes := Times{Encoding: "YAMLnoTag"}
+		jsonTimes := Times{Encoding: "JSON"}
+		jsonNoTagTimes := Times{Encoding: "JSONnoTag"}
+		xmlTimes := Times{Encoding: "XML"}
+		xmlNoTagTimes := Times{Encoding: "XMLnoTag"}
+
+		for i := 0; i < amount; i++ {
+			yamlTimeUnmarshal, yamlTimeMarshal := unmarshalThenMarshalYAML(yamlDataBytes)
+			yamlTimes.Times = append(yamlTimes.Times, TimeData{Unmarshal: yamlTimeUnmarshal, Marshal: yamlTimeMarshal})
+			yamNoTagTimeUnmarshal, yamlTimeNoTagMarshal := unmarshalThenMarshalYAMLNoTags(yamlDataBytes)
+			yamlNoTagTimes.Times = append(yamlNoTagTimes.Times, TimeData{Unmarshal: yamNoTagTimeUnmarshal, Marshal: yamlTimeNoTagMarshal})
+
+			jsonTimeUnmarshal, jsonTimeMarshal := unmarshalThenMarshalJSON(jsonDataBytes)
+			jsonTimes.Times = append(jsonTimes.Times, TimeData{Unmarshal: jsonTimeUnmarshal, Marshal: jsonTimeMarshal})
+			jsonNoTagTimeUnmarshal, jsonNoTagTimeMarshal := unmarshalThenMarshalJSONNoTag(jsonDataBytes)
+			jsonNoTagTimes.Times = append(jsonNoTagTimes.Times, TimeData{Unmarshal: jsonNoTagTimeUnmarshal, Marshal: jsonNoTagTimeMarshal})
+
+			xmlTimeUnmarshal, xmlTimeMarshal := unmarshalThenMarshalXML(xmlDataBytes)
+			xmlTimes.Times = append(xmlTimes.Times, TimeData{Unmarshal: xmlTimeUnmarshal, Marshal: xmlTimeMarshal})
+			xmlNoTagTimeUnmarshal, xmlNoTagTimeMarshal := unmarshalThenMarshalXMLNoTag(xmlDataBytes)
+			xmlNoTagTimes.Times = append(xmlNoTagTimes.Times, TimeData{Unmarshal: xmlNoTagTimeUnmarshal, Marshal: xmlNoTagTimeMarshal})
+			fmt.Printf("completed loop %d \n", i)
+		}
+		fmt.Println("Times:")
+		fmt.Println(yamlTimes.String())
+		fmt.Println(jsonTimes.String())
+		fmt.Println(xmlTimes.String())
+		fmt.Println("")
+		fmt.Println(yamlNoTagTimes.String())
+		fmt.Println(jsonNoTagTimes.String())
+		fmt.Println(xmlNoTagTimes.String())
+	}
 
 	fmt.Println("FIN")
 }
 
-func unmarshalThenMarshalYAML() int64 {
-	dataBytes := ReadInBytes("./debian_vulns.yaml")
+func unmarshalThenMarshalYAML(dataBytes []byte) (int64, int64) {
 
-	start := time.Now()
 	vulnData := DebianVulnData{}
+
+	startUnmarshal := time.Now()
 	err := yaml.Unmarshal(dataBytes, &vulnData)
 	if err != nil {
 		log.Fatalf("error: %v", err)
 	}
+	unmarshalDuration := time.Since(startUnmarshal)
 
+	startMarshal := time.Now()
 	yamlData, err := yaml.Marshal(&vulnData)
 	if err != nil {
 		log.Fatalf("error: %v", err)
 	}
-	duration := time.Since(start)
-	log.Printf("Yaml time: %dms\n", duration.Milliseconds())
+	marshalDuration := time.Since(startMarshal)
 
-	if len(yamlData) < 10 {
-		log.Println("yaml len ", len(yamlData))
-	}
+	log.Printf("YAML time unmarshal: %dms. marshal: %d\n", unmarshalDuration.Milliseconds(), marshalDuration.Milliseconds())
+	log.Panicln("YAML packages len ", len(vulnData.Packages))
+	log.Println("YAML output len ", len(yamlData))
 
-	return duration.Milliseconds()
+	return unmarshalDuration.Milliseconds(), marshalDuration.Milliseconds()
 }
 
-func unmarshalThenMarshalJSON() int64 {
+func unmarshalThenMarshalYAMLNoTags(dataBytes []byte) (int64, int64) {
 
-	dataBytes := ReadInBytes("./debian_vulns.json")
+	vulnData := DebianVulnDataNoTag{}
 
-	start := time.Now()
+	startUnmarshal := time.Now()
+	err := yaml.Unmarshal(dataBytes, &vulnData)
+	if err != nil {
+		log.Fatalf("error: %v", err)
+	}
+	unmarshalDuration := time.Since(startUnmarshal)
+
+	startMarshal := time.Now()
+	yamlData, err := yaml.Marshal(&vulnData)
+	if err != nil {
+		log.Fatalf("error: %v", err)
+	}
+	marshalDuration := time.Since(startMarshal)
+
+	log.Printf("YAML no tag time unmarshal: %dms. marshal: %d\n", unmarshalDuration.Milliseconds(), marshalDuration.Milliseconds())
+	log.Panicln("YAML no tag packages len ", len(vulnData.Packages))
+	log.Println("YAML no tag output len ", len(yamlData))
+
+	return unmarshalDuration.Milliseconds(), marshalDuration.Milliseconds()
+}
+
+func unmarshalThenMarshalJSON(dataBytes []byte) (int64, int64) {
+
 	vulnData := DebianVulnData{}
-	err := json.Unmarshal(dataBytes, &vulnData)
 
+	startUnmarshal := time.Now()
+	err := json.Unmarshal(dataBytes, &vulnData)
+	if err != nil {
+		log.Fatalf("error: %v", err)
+	}
+	unmarshalDuration := time.Since(startUnmarshal)
+
+	startMarshal := time.Now()
 	jsonData, err := json.Marshal(vulnData)
 	if err != nil {
 		log.Fatalf("error: %v", err)
 	}
+	marshalDuration := time.Since(startMarshal)
 
-	duration := time.Since(start)
-	log.Printf("json time: %dms\n", duration.Milliseconds())
+	log.Printf("JSON time unmarshal: %dms. marshal: %d\n", unmarshalDuration.Milliseconds(), marshalDuration.Milliseconds())
+	log.Panicln("JSON packages len ", len(vulnData.Packages))
+	log.Println("JSON output len ", len(jsonData))
 
-	if len(jsonData) < 10 {
-		log.Println("yaml len ", len(jsonData))
-	}
-	return duration.Milliseconds()
+	return unmarshalDuration.Milliseconds(), marshalDuration.Milliseconds()
 }
 
-func unmarshalThenMarshalXML() int64 {
-	dataBytes := ReadInBytes("./debian_vulns.xml")
+func unmarshalThenMarshalJSONNoTag(dataBytes []byte) (int64, int64) {
 
-	start := time.Now()
+	vulnData := DebianVulnDataNoTag{}
+
+	startUnmarshal := time.Now()
+	err := json.Unmarshal(dataBytes, &vulnData)
+	if err != nil {
+		log.Fatalf("error: %v", err)
+	}
+	unmarshalDuration := time.Since(startUnmarshal)
+
+	startMarshal := time.Now()
+	jsonData, err := json.Marshal(vulnData)
+	if err != nil {
+		log.Fatalf("error: %v", err)
+	}
+	marshalDuration := time.Since(startMarshal)
+
+	log.Printf("JSON no tag time unmarshal: %dms. marshal: %d\n", unmarshalDuration.Milliseconds(), marshalDuration.Milliseconds())
+	log.Panicln("JSON no tag packages len ", len(vulnData.Packages))
+	log.Println("JSON no tag output len ", len(jsonData))
+
+	return unmarshalDuration.Milliseconds(), marshalDuration.Milliseconds()
+}
+
+func unmarshalThenMarshalXML(dataBytes []byte) (int64, int64) {
+
 	vulnData := DebianVulnData{}
+	startUnmarshal := time.Now()
 	err := xml.Unmarshal(dataBytes, &vulnData)
+	if err != nil {
+		log.Fatalf("error: %v", err)
+	}
+	unmarshalDuration := time.Since(startUnmarshal)
 
+	startMarshal := time.Now()
 	xmlData, err := xml.Marshal(vulnData)
 	if err != nil {
 		log.Fatalf("error: %v", err)
 	}
+	marshalDuration := time.Since(startMarshal)
 
-	duration := time.Since(start)
-	log.Printf("xml time: %dms\n", duration.Milliseconds())
+	log.Printf("XML time unmarshal: %dms. marshal: %d\n", unmarshalDuration.Milliseconds(), marshalDuration.Milliseconds())
+	log.Panicln("XML packages len ", len(vulnData.Packages))
+	log.Println("XML output len ", len(xmlData))
 
-	if len(xmlData) < 10 {
-		log.Println("yaml len ", len(xmlData))
-	}
-
-	return duration.Milliseconds()
+	return unmarshalDuration.Milliseconds(), marshalDuration.Milliseconds()
 }
 
-func ReadInBytes(fileName string) []byte {
+func unmarshalThenMarshalXMLNoTag(dataBytes []byte) (int64, int64) {
+
+	vulnData := DebianVulnDataNoTag{}
+	startUnmarshal := time.Now()
+	err := xml.Unmarshal(dataBytes, &vulnData)
+	if err != nil {
+		log.Fatalf("error: %v", err)
+	}
+	unmarshalDuration := time.Since(startUnmarshal)
+
+	startMarshal := time.Now()
+	xmlData, err := xml.Marshal(vulnData)
+	if err != nil {
+		log.Fatalf("error: %v", err)
+	}
+	marshalDuration := time.Since(startMarshal)
+
+	log.Printf("XML no tag time unmarshal: %dms. marshal: %d\n", unmarshalDuration.Milliseconds(), marshalDuration.Milliseconds())
+	log.Panicln("XML no tag packages len ", len(vulnData.Packages))
+	log.Println("XML no tag output len ", len(xmlData))
+
+	return unmarshalDuration.Milliseconds(), marshalDuration.Milliseconds()
+}
+
+func readInBytes(fileName string) []byte {
 	data, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		log.Fatalln(err)
